@@ -4,6 +4,7 @@ import pandas as pd
 import json
 import time
 import os
+import random
 from flask import Flask, jsonify, request
 
 # Create Flask app
@@ -12,19 +13,36 @@ app = Flask(__name__)
 def scrape_bitcoin_etf_data(url):
     """Scrape Bitcoin ETF data from the specified URL using BeautifulSoup."""
     
-    # Set headers to mimic a real browser
+    # Create a session for better handling
+    session = requests.Session()
+    
+    # More comprehensive headers to mimic a real browser
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"'
     }
     
+    session.headers.update(headers)
+    
     try:
-        # Make the request
-        response = requests.get(url, headers=headers, timeout=10)
+        # Add a small random delay to seem more human-like
+        time.sleep(random.uniform(1, 3))
+        
+        # Make the request with session
+        response = session.get(url, timeout=30)
         response.raise_for_status()  # Raise an exception for bad status codes
         
         print("Website loaded successfully!")
@@ -77,12 +95,20 @@ def scrape_bitcoin_etf_data(url):
             
         return table_headers, data
         
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            print(f"Error: Access forbidden (403). Website may be blocking automated requests.")
+        else:
+            print(f"HTTP Error: {e}")
+        return None, None
     except requests.exceptions.RequestException as e:
         print(f"Error making request: {e}")
         return None, None
     except Exception as e:
         print(f"Error during scraping: {e}")
         return None, None
+    finally:
+        session.close()
 
 def save_to_json(headers, data, filename='bitcoin_etf_flows.json'):
     """Save the scraped data to a JSON file."""
