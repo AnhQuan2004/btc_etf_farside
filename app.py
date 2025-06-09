@@ -110,8 +110,8 @@ def scrape_bitcoin_etf_data(url):
     finally:
         session.close()
 
-def save_to_json(headers, data, filename='bitcoin_etf_flows.json'):
-    """Save the scraped data to a JSON file."""
+def process_data(headers, data):
+    """Process the scraped data and return as JSON without saving to files."""
     if headers and data:
         # Create a list of dictionaries, each representing a row
         json_data = []
@@ -125,30 +125,12 @@ def save_to_json(headers, data, filename='bitcoin_etf_flows.json'):
         for i, row in enumerate(json_data[:3]):
             print(f"Row {i+1}: {row}")
         
-        # Ensure output directory exists
-        output_dir = '/app/output'
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Save to JSON file in output directory
-        filepath = os.path.join(output_dir, filename)
-        with open(filepath, 'w') as json_file:
-            json.dump(json_data, json_file, indent=4)
-        
-        print(f"\nData has been saved to {filepath}")
-        
         # Print summary
-        print(f"Total rows saved to JSON: {len(data)}")
-        
-        # Also save a CSV version for easier viewing
-        csv_filename = filename.replace('.json', '.csv')
-        csv_filepath = os.path.join(output_dir, csv_filename)
-        df = pd.DataFrame(json_data)
-        df.to_csv(csv_filepath, index=False)
-        print(f"CSV version saved to {csv_filepath}")
+        print(f"Total rows processed: {len(data)}")
         
         return json_data
     else:
-        print("No data to save")
+        print("No data to process")
         return None
 
 # Flask routes
@@ -171,30 +153,45 @@ def health():
 
 @app.route('/scrape')
 def scrape_endpoint():
-    """Scrape Bitcoin ETF data and return as JSON."""
+    """Scrape Bitcoin ETF data and return as JSON for display."""
     url = "https://farside.co.uk/bitcoin-etf-flow-all-data"
     
     print(f"Scraping data from: {url}")
     print("Starting Bitcoin ETF data scraper...")
     
-    headers, data = scrape_bitcoin_etf_data(url)
-    
-    if headers and data:
-        json_data = save_to_json(headers, data)
-        print("✅ Scraping completed successfully!")
+    # Try multiple times with different delays
+    max_retries = 3
+    for attempt in range(max_retries):
+        print(f"Attempt {attempt + 1} of {max_retries}")
         
-        return jsonify({
-            "status": "success",
-            "message": "Bitcoin ETF data scraped successfully",
-            "total_rows": len(data),
-            "data": json_data
-        })
-    else:
-        print("❌ Failed to scrape data")
-        return jsonify({
-            "status": "error",
-            "message": "Failed to scrape Bitcoin ETF data"
-        }), 500
+        headers, data = scrape_bitcoin_etf_data(url)
+        
+        if headers and data:
+            json_data = process_data(headers, data)
+            print("✅ Scraping completed successfully!")
+            
+            return jsonify({
+                "status": "success",
+                "message": "Bitcoin ETF Flow Data",
+                "source": "farside.co.uk",
+                "last_updated": time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "total_records": len(data),
+                "columns": headers,
+                "data": json_data
+            })
+        else:
+            if attempt < max_retries - 1:
+                wait_time = random.uniform(5, 10)
+                print(f"❌ Attempt {attempt + 1} failed. Retrying in {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+            else:
+                print("❌ All attempts failed")
+    
+    return jsonify({
+        "status": "error",
+        "message": "Unable to fetch Bitcoin ETF data",
+        "suggestion": "Website may be temporarily unavailable. Please try again later."
+    }), 500
 
 def main():
     """Main function to run the scraping process with BeautifulSoup."""
@@ -206,7 +203,7 @@ def main():
     headers, data = scrape_bitcoin_etf_data(url)
     
     if headers and data:
-        save_to_json(headers, data)
+        process_data(headers, data)
         print("✅ Scraping completed successfully!")
     else:
         print("❌ Failed to scrape data")
