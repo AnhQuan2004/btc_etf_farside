@@ -4,6 +4,10 @@ import pandas as pd
 import json
 import time
 import os
+from flask import Flask, jsonify, request
+
+# Create Flask app
+app = Flask(__name__)
 
 def scrape_bitcoin_etf_data(url):
     """Scrape Bitcoin ETF data from the specified URL using BeautifulSoup."""
@@ -116,8 +120,55 @@ def save_to_json(headers, data, filename='bitcoin_etf_flows.json'):
         df.to_csv(csv_filepath, index=False)
         print(f"CSV version saved to {csv_filepath}")
         
+        return json_data
     else:
         print("No data to save")
+        return None
+
+# Flask routes
+@app.route('/')
+def home():
+    """Home page with basic information."""
+    return jsonify({
+        "message": "Bitcoin ETF Flow Scraper API",
+        "endpoints": {
+            "/": "This page",
+            "/scrape": "Scrape and return Bitcoin ETF flow data",
+            "/health": "Health check"
+        }
+    })
+
+@app.route('/health')
+def health():
+    """Health check endpoint."""
+    return jsonify({"status": "healthy", "service": "bitcoin-etf-scraper"})
+
+@app.route('/scrape')
+def scrape_endpoint():
+    """Scrape Bitcoin ETF data and return as JSON."""
+    url = "https://farside.co.uk/bitcoin-etf-flow-all-data"
+    
+    print(f"Scraping data from: {url}")
+    print("Starting Bitcoin ETF data scraper...")
+    
+    headers, data = scrape_bitcoin_etf_data(url)
+    
+    if headers and data:
+        json_data = save_to_json(headers, data)
+        print("✅ Scraping completed successfully!")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Bitcoin ETF data scraped successfully",
+            "total_rows": len(data),
+            "data": json_data
+        })
+    else:
+        print("❌ Failed to scrape data")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to scrape Bitcoin ETF data"
+        }), 500
 
 def main():
     """Main function to run the scraping process with BeautifulSoup."""
@@ -135,4 +186,6 @@ def main():
         print("❌ Failed to scrape data")
 
 if __name__ == "__main__":
-    main()
+    # Get port from environment variable for Cloud Run
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
