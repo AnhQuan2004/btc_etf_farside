@@ -4,7 +4,6 @@ import pandas as pd
 import json
 import time
 import os
-import random
 from flask import Flask, jsonify, request
 
 # Create Flask app
@@ -13,36 +12,19 @@ app = Flask(__name__)
 def scrape_bitcoin_etf_data(url):
     """Scrape Bitcoin ETF data from the specified URL using BeautifulSoup."""
     
-    # Create a session for better handling
-    session = requests.Session()
-    
-    # More comprehensive headers to mimic a real browser
+    # Set headers to mimic a real browser
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"'
     }
     
-    session.headers.update(headers)
-    
     try:
-        # Add a small random delay to seem more human-like
-        time.sleep(random.uniform(1, 3))
-        
-        # Make the request with session
-        response = session.get(url, timeout=30)
+        # Make the request
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()  # Raise an exception for bad status codes
         
         print("Website loaded successfully!")
@@ -95,23 +77,15 @@ def scrape_bitcoin_etf_data(url):
             
         return table_headers, data
         
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            print(f"Error: Access forbidden (403). Website may be blocking automated requests.")
-        else:
-            print(f"HTTP Error: {e}")
-        return None, None
     except requests.exceptions.RequestException as e:
         print(f"Error making request: {e}")
         return None, None
     except Exception as e:
         print(f"Error during scraping: {e}")
         return None, None
-    finally:
-        session.close()
 
-def process_data(headers, data):
-    """Process the scraped data and return as JSON without saving to files."""
+def save_to_json(headers, data, filename='bitcoin_etf_flows.json'):
+    """Save the scraped data to a JSON file."""
     if headers and data:
         # Create a list of dictionaries, each representing a row
         json_data = []
@@ -125,12 +99,30 @@ def process_data(headers, data):
         for i, row in enumerate(json_data[:3]):
             print(f"Row {i+1}: {row}")
         
+        # Ensure output directory exists
+        output_dir = '/app/output'
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Save to JSON file in output directory
+        filepath = os.path.join(output_dir, filename)
+        with open(filepath, 'w') as json_file:
+            json.dump(json_data, json_file, indent=4)
+        
+        print(f"\nData has been saved to {filepath}")
+        
         # Print summary
-        print(f"Total rows processed: {len(data)}")
+        print(f"Total rows saved to JSON: {len(data)}")
+        
+        # Also save a CSV version for easier viewing
+        csv_filename = filename.replace('.json', '.csv')
+        csv_filepath = os.path.join(output_dir, csv_filename)
+        df = pd.DataFrame(json_data)
+        df.to_csv(csv_filepath, index=False)
+        print(f"CSV version saved to {csv_filepath}")
         
         return json_data
     else:
-        print("No data to process")
+        print("No data to save")
         return None
 
 # Flask routes
@@ -153,45 +145,30 @@ def health():
 
 @app.route('/scrape')
 def scrape_endpoint():
-    """Scrape Bitcoin ETF data and return as JSON for display."""
+    """Scrape Bitcoin ETF data and return as JSON."""
     url = "https://farside.co.uk/bitcoin-etf-flow-all-data"
     
     print(f"Scraping data from: {url}")
     print("Starting Bitcoin ETF data scraper...")
     
-    # Try multiple times with different delays
-    max_retries = 3
-    for attempt in range(max_retries):
-        print(f"Attempt {attempt + 1} of {max_retries}")
-        
-        headers, data = scrape_bitcoin_etf_data(url)
-        
-        if headers and data:
-            json_data = process_data(headers, data)
-            print("✅ Scraping completed successfully!")
-            
-            return jsonify({
-                "status": "success",
-                "message": "Bitcoin ETF Flow Data",
-                "source": "farside.co.uk",
-                "last_updated": time.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                "total_records": len(data),
-                "columns": headers,
-                "data": json_data
-            })
-        else:
-            if attempt < max_retries - 1:
-                wait_time = random.uniform(5, 10)
-                print(f"❌ Attempt {attempt + 1} failed. Retrying in {wait_time:.1f} seconds...")
-                time.sleep(wait_time)
-            else:
-                print("❌ All attempts failed")
+    headers, data = scrape_bitcoin_etf_data(url)
     
-    return jsonify({
-        "status": "error",
-        "message": "Unable to fetch Bitcoin ETF data",
-        "suggestion": "Website may be temporarily unavailable. Please try again later."
-    }), 500
+    if headers and data:
+        json_data = save_to_json(headers, data)
+        print("✅ Scraping completed successfully!")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Bitcoin ETF data scraped successfully",
+            "total_rows": len(data),
+            "data": json_data
+        })
+    else:
+        print("❌ Failed to scrape data")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to scrape Bitcoin ETF data"
+        }), 500
 
 def main():
     """Main function to run the scraping process with BeautifulSoup."""
@@ -203,7 +180,7 @@ def main():
     headers, data = scrape_bitcoin_etf_data(url)
     
     if headers and data:
-        process_data(headers, data)
+        save_to_json(headers, data)
         print("✅ Scraping completed successfully!")
     else:
         print("❌ Failed to scrape data")
